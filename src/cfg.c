@@ -44,12 +44,17 @@ void configSetPath()
 	DIR *dir;
 	char aux[MAXSTRLEN/2-1];
 
+#ifdef __amigaos__
+	/* AmigaOS: the drawer's user/ (no $HOME, and "." is no directory) */
+	snprintf(configDir, sizeof(configDir), "PROGDIR:user");
+#else
 	/* build config dir */
 	snprintf(aux, sizeof(aux), "%s", CONFIGDIR);
 	if (strcmp(aux, ".") != 0) /* . = disabled install */
 		snprintf(configDir, sizeof(configDir), "%s/%s", getenv( "HOME" ), aux);
 	else
 		snprintf(configDir, sizeof(configDir), "%s", aux);
+#endif
 
 	/* create directory if not found */
 	if ((dir = opendir(configDir)) == 0) {
