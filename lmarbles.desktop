@@ -1,7 +1,10 @@
 [Desktop Entry]
 Name=LMarbles
-Comment=Atomix-like enhanced puzzle game.
+GenericName=Puzzle game
+Comment=Build figures out of colored marbles
+Comment[de]=Baue Figuren aus farbigen Murmeln
 Exec=lmarbles
 Icon=lmarbles
 Type=Application
-Categories=Game;
+Categories=Game;LogicGame
+Keywords=puzzle;logic;marbles;
