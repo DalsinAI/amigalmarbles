@@ -1,0 +1,206 @@
+/***************************************************************************
+                          profile.c  -  description
+                             -------------------
+    begin                : Sun Sep 17 2000
+    copyright            : (C) 2000 by Michael Speck
+    email                : kulkanie@gmx.net
+ ***************************************************************************/
+
+/***************************************************************************
+ *                                                                         *
+ *   This program is free software; you can redistribute it and/or modify  *
+ *   it under the terms of the GNU General Public License as published by  *
+ *   the Free Software Foundation; either version 2 of the License, or     *
+ *   (at your option) any later version.                                   *
+ *                                                                         *
+ ***************************************************************************/
+
+#include "tools.h"
+#include "profile.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "file.h"
+
+/* only one profile for user */
+Profile profile;
+
+/* profile path */
+char prf_pth[MAXSTRLEN];
+
+/* configuration */
+extern char configDir[MAXSTRLEN/2];
+extern Config config;
+
+/* initialize profile */
+void profileInit()
+{
+	snprintf(prf_pth, MAXSTRLEN, "%s/lmarbles.prf", configDir);
+	snprintf(profile.name, MAXSTRLEN, "Profile");
+	DL_Ini(&profile.sts);
+	profile.sts.flgs = DL_AUTODEL | DL_NOCB;
+}
+
+/* load profile; return 0 on error (and create standard profile), 1 otherwise */
+int profileLoad()
+{
+	FILE *fh = 0;
+	char str[MAXSTRLEN];
+	int dummy;
+
+	profileReset();
+
+	_loginfo(_("loading profile %s\n"), prf_pth);
+
+	/* open file */
+	if ((fh = fileOpen(prf_pth, "r")) == 0) {
+		_loginfo(_("  not found, creating new profile\n"));
+		return 0;
+	}
+
+	/* read profile */
+	fileReadInt(fh, "version", &dummy); /* for future changes */
+	fileReadString(fh, "name", profile.name);
+	while (fileReadString(fh, "setname", str)) {
+		SInf *st = calloc(1,sizeof(SInf));
+
+		snprintf(st->name, MAXSTRLEN, "%s", str);
+		fileReadInt(fh, "numlevels", &st->numLevels);
+		fileReadInt(fh, "numchapters", &st->numChapters);
+		fileReadInt(fh, "chaptersize", &st->chapterSize);
+		for (int i = 0; i < LT_COUNT; i++) {
+			fileReadInt(fh, "score", &st->score[i]);
+			fileReadIntList(fh,"chapteropen", st->chapterOpen[i], st->numChapters);
+			fileReadIntList(fh,"completed", st->completed[i], st->numLevels);
+		}
+		profileCalcCompletion(st);
+
+		DL_Add(&profile.sts, st);
+	}
+
+	fclose(fh);
+
+	return 1;
+}
+
+/* save profiles */
+void profileSave()
+{
+	DL_E *le = 0;
+	SInf *st;
+	FILE *fh;
+	int i;
+
+	_loginfo(_("saving profile...\n"));
+
+	if ((fh = fopen(prf_pth, "w")) == 0) {
+		_logerr("no write access to %s\n", prf_pth);
+		return;
+	}
+
+	fprintf(fh, "version=1;\n");
+	fprintf(fh, "name=%s;\n", profile.name);
+	le = profile.sts.hd.n;
+	while (le != &profile.sts.tl) {
+		st = (SInf*)le->d;
+		fprintf(fh, "setname=%s;\n", st->name);
+		fprintf(fh, "numlevels=%d;\n", st->numLevels);
+		fprintf(fh, "numchapters=%d;\n", st->numChapters);
+		fprintf(fh, "chaptersize=%d;\n", st->chapterSize);
+		for (int j = 0; j < LT_COUNT; j++) {
+			fprintf(fh, "score=%d;\n", st->score[j]);
+			fprintf(fh, "chapteropen=");
+			for (i = 0; i < st->numChapters; i++)
+				fprintf(fh, "%d;", st->chapterOpen[j][i]);
+			fprintf(fh, "\n");
+			fprintf(fh, "completed=");
+			for (i = 0; i < st->numLevels; i++)
+				fprintf(fh, "%d;", st->completed[j][i]);
+			fprintf(fh, "\n");
+		}
+		le = le->n;
+	}
+
+	fclose(fh);
+}
+
+/* reset profile */
+void profileReset()
+{
+	DL_Clr(&profile.sts);
+}
+
+/* register or find a levelset with @name */
+SInf* profileRegisterSet(LSet *l_st)
+{
+	int i;
+	DL_E *e = profile.sts.hd.n;
+	SInf  *s;
+	/* maybe it already exists */
+	while (e != &profile.sts.tl) {
+		s = (SInf*)e->d;
+		if (strcmp(s->name, l_st->nm)) {
+			e = e->n;
+			continue;
+		}
+		/* match */
+		if (l_st->c_num != s->numChapters || l_st->l_num != s->chapterSize) {
+			// has changed; clear it
+			s->numLevels = l_st->c_num * l_st->l_num;
+			s->chapterSize = l_st->l_num;
+			s->numChapters = l_st->c_num;
+			for (int j = 0; j < LT_COUNT; j++) {
+				for (i = 0; i < s->numChapters; i++)
+					s->chapterOpen[j][i] = l_st->ch[i].opn;
+				memset(s->completed[j], 0, sizeof(s->completed[j]));
+			}
+			_loginfo("WARNING: profile '%s': set info '%s' seems to be out of date\n",
+					profile.name, l_st->nm);
+		}
+		return s;
+	}
+	/* must be registered */
+	s = calloc(1, sizeof(SInf));
+	strcpy(s->name, l_st->nm);
+	s->numLevels = l_st->c_num * l_st->l_num;
+	s->chapterSize = l_st->l_num;
+	s->numChapters = l_st->c_num;
+	for (int j = 0; j < LT_COUNT; j++) {
+		for (i = 0; i < s->numChapters; i++)
+			s->chapterOpen[j][i] = l_st->ch[i].opn;
+		memset(s->completed[j], 0, sizeof(s->completed[j]));
+	}
+	DL_Add(&profile.sts, s);
+	return s;
+}
+
+/* update profile's score and completion state (rating + 1) so
+ * completed is 0 if not finished, 1 with 0 stars, 2 with 1 star, ... */
+void profileUpdate(SInf *inf, int lvl, int rating, int scr)
+{
+	if (inf->completed[config.limitType][lvl] < rating+1) {
+		inf->completed[config.limitType][lvl] = rating+1;
+		inf->score[config.limitType] += scr;
+		profileCalcCompletion(inf);
+	}
+}
+
+/* Return 1 if level rating has been improved, 0 otherwise. */
+int profileLevelImproved(SInf *inf, int lvl, int rating)
+{
+	if (inf->completed[config.limitType][lvl] < rating+1)
+		return 1;
+	return 0;
+}
+
+/** Calculate completion rate (0 to 1000) for set. Each level
+ * has 0-6 as rating. */
+void profileCalcCompletion(SInf *st)
+{
+	for (int j = 0; j < LT_COUNT; j++) {
+		st->completion[j] = 0;
+		for (int i = 0; i < st->numLevels; i++)
+			st->completion[j] += st->completed[j][i];
+		st->completion[j] = 1000 * st->completion[j] / (st->numLevels*6);
+	}
+}
