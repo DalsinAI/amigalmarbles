@@ -70,8 +70,6 @@ dist: $(BUILD)/$(PROG) $(ICONS) AMIGA_PORT.md
 	cp amiga/icons/LMarbles.info amiga/icons/ReadMe.info $(OUT)/
 	cp amiga/icons/ReadMe.info $(OUT)/COPYING.txt.info
 	cp amiga/icons/ReadMe.info $(OUT)/manual/manual.html.info
-	cp amiga/icons/Folder.info $(OUT)/data.info
-	cp amiga/icons/Folder.info $(OUT)/manual.info
 	cp amiga/icons/LMarbles-drawer.info dist/LMarbles.info
 
 -include $(OBJS:.o=.d)
